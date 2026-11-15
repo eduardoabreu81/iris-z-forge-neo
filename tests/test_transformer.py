@@ -8,7 +8,7 @@ import torch
 
 from forge_irisz import contracts
 from forge_irisz.native import transformer
-from forge_irisz.native.transformer import GIVEN_RGB, IrisZDiT
+from forge_irisz.native.transformer import GIVEN_DEPTH, GIVEN_RGB, IrisZDiT
 from tests.reference import iris_z_sdk_model as sdk
 
 TOY = dict(in_channels=8, context_in_dim=12, hidden_size=64, num_heads=2, depth=1, depth_single_blocks=2,
@@ -79,6 +79,10 @@ class TestTransformer(unittest.TestCase):
         t = torch.tensor([0.9, 0.5])
         self.check(torch.zeros(2), t, t, (GIVEN_RGB, transformer.DEPTH))
 
+    def test_image_from_given_depth(self):
+        t = torch.tensor([0.8, 0.2])
+        self.check(t, torch.zeros(2), t, (transformer.RGB, GIVEN_DEPTH))
+
     def test_modality_and_grid_levels_matter(self):
         # the comparison above would hold trivially if the extra conditioning did nothing
         t = torch.tensor([0.7, 0.3])
@@ -106,6 +110,20 @@ class TestTransformer(unittest.TestCase):
             _, expected = self.ours.forward_grids(self.rgb[:1].expand(2, -1, -1, -1), self.depth, torch.zeros(2),
                                                   sigma, sigma, (GIVEN_RGB, transformer.DEPTH), self.context)
         self.assertClose(out, expected)
+
+    def test_forge_forward_paint_mode(self):
+        sigma = torch.tensor([0.5, 0.5])
+        contracts.set_plan(contracts.Plan(contracts.PAINT, self.depth[:1]))
+        with torch.no_grad():
+            out = self.ours(self.rgb, sigma, self.context)
+            expected, _ = self.ours.forward_grids(self.rgb, self.depth[:1].expand(2, -1, -1, -1), sigma,
+                                                  torch.zeros(2), sigma, (transformer.RGB, GIVEN_DEPTH), self.context)
+        self.assertClose(out, expected)
+
+    def test_paint_without_depth_raises(self):
+        contracts.set_plan(contracts.Plan(contracts.PAINT, None))
+        with self.assertRaises(contracts.IrisZError):
+            self.ours(self.rgb, torch.tensor([0.5, 0.5]), self.context)
 
     def test_cfg_rows_repeat_the_companion(self):
         # Forge stacks [cond rows, uncond rows]: two copies of a one-sample companion

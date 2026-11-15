@@ -274,7 +274,8 @@ class IrisZDiT(nn.Module):
 
     def forward(self, x, timestep, context, transformer_options=None, **kwargs):
         """Forge's call: x is the grid being sampled [B, C, h, w], timestep its sigma [B]. The other grid comes from
-        the generation's plan (contracts.py): pure noise next to an image, or the given image next to its depth."""
+        the generation's plan (contracts.py): pure noise next to an image, the given image next to its depth, or the
+        given depth next to the image painted over it."""
         sigma = timestep.float()
         plan = contracts.current_plan()
         if plan is not None and plan.mode == contracts.DEPTH:
@@ -282,6 +283,11 @@ class IrisZDiT(nn.Module):
             _, depth = self.forward_grids(given, x, torch.zeros_like(sigma), sigma, sigma, (GIVEN_RGB, DEPTH),
                                           context, transformer_options)
             return depth
+        if plan is not None and plan.mode == contracts.PAINT:
+            given = contracts.given_depth(plan, x)
+            rgb, _ = self.forward_grids(x, given, sigma, torch.zeros_like(sigma), sigma, (RGB, GIVEN_DEPTH),
+                                        context, transformer_options)
+            return rgb
         noise = contracts.companion_noise(plan, x)
         rgb, _ = self.forward_grids(x, noise, sigma, torch.ones_like(sigma), sigma, (RGB, DEPTH), context,
                                     transformer_options)

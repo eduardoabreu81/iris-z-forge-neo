@@ -105,6 +105,50 @@ class TestScript(unittest.TestCase):
         self.assertEqual(pp.image.size, (1200, 800))
         self.assertEqual(pp.image.getpixel((5, 5)), 215)
 
+    def test_paint_settings(self):
+        p = processing(img2img=True)
+        script.before_process(p, script.MODE_PAINT)
+        self.assertEqual(contracts.current_plan().mode, contracts.PAINT)
+        # about one megapixel at the map's aspect ratio, the user's prompt, steps and guidance kept
+        self.assertEqual(p.init_images[0].size, depth.enlarged_size(1200, 800))
+        self.assertEqual((p.width, p.height), p.init_images[0].size)
+        self.assertEqual((p.prompt, p.steps, p.cfg_scale, p.batch_size), ("a lighthouse <lora:detail:0.5>", 50, 4.0, 2))
+        self.assertEqual((p.denoising_strength, p.resize_mode), (1.0, 0))
+        self.assertEqual(p.override_settings["img2img_extra_noise"], 0)
+        self.assertEqual(p.extra_generation_params["Iris-Z task"], script.MODE_PAINT)
+        latent = torch.randn(1, 128, 30, 46)
+        script.before_sampling(p, torch.randn_like(latent), latent)
+        self.assertTrue(torch.equal(contracts.current_plan().companion, latent))
+        # the output is the painted picture itself
+        pp = types.SimpleNamespace(image=Image.new("RGB", (8, 8), (10, 200, 30)))
+        script.postprocess_image(p, pp)
+        self.assertEqual(pp.image.getpixel((1, 1)), (10, 200, 30))
+
+    def test_paint_refusals(self):
+        with mock.patch.object(script, "selected_is_iris_z", return_value=False):
+            script.before_process(processing(img2img=True), script.MODE_PAINT)
+        with self.assertRaises(contracts.IrisZError) as raised:
+            contracts.raise_pending_error()
+        self.assertIn("Depth to Image", str(raised.exception))
+
+    def test_paint_input_inverts_our_depth_maps(self):
+        # a map from Image to Depth (near = bright, already spread over the range) comes back as the encoding
+        ramp = Image.fromarray(torch.linspace(0, 255, 1024).round().to(torch.uint8).repeat(1024, 1).numpy(), "L")
+        given = depth.paint_input(ramp)
+        self.assertEqual(given.mode, "RGB")
+        self.assertEqual(given.size, (1024, 1024))
+        r, g, b = given.getpixel((1023, 10))
+        self.assertTrue(r == g == b)
+        self.assertLess(r, 8)  # nearest: the encoding's -1
+        self.assertGreater(given.getpixel((0, 10))[0], 247)  # farthest: +1
+
+    def test_paint_input_stretches_a_narrow_map(self):
+        narrow = Image.new("L", (640, 480), 100)
+        narrow.paste(140, (0, 0, 320, 480))
+        given = depth.paint_input(narrow)
+        values = sorted({given.getpixel((x, 100))[0] for x in (10, 600)})
+        self.assertEqual(values, [0, 255])
+
     def test_selected_checkpoint(self):
         shared = types.SimpleNamespace(opts=types.SimpleNamespace(sd_model_checkpoint="iris-z"))
         sd_models = types.SimpleNamespace(get_closet_checkpoint_match=lambda name: types.SimpleNamespace(

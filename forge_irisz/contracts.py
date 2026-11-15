@@ -6,12 +6,14 @@
 #
 # The plan: an Iris-Z sequence always holds two grids, and Forge's sampler only knows the one it samples. The plan
 # carries the other: for an image, the depth grid as fixed pure noise (one per seed, as the SDK draws it next to the
-# image noise and never denoises it); for Image to Depth, the clean image latent the depth is read from.
+# image noise and never denoises it); for Image to Depth, the clean image latent the depth is read from; for Depth
+# to Image, the clean depth latent the image is painted over.
 
 from dataclasses import dataclass
 
 IMAGE = "image"
 DEPTH = "depth"
+PAINT = "paint"
 
 _pending_error = None
 _plan = None
@@ -35,7 +37,7 @@ def raise_pending_error():
 @dataclass
 class Plan:
     mode: str = IMAGE
-    # IMAGE: the depth grid's noise [B, C, h, w] (CPU); DEPTH: the given image latent [1 or B, C, h, w]
+    # IMAGE: the depth grid's noise [B, C, h, w] (CPU); DEPTH / PAINT: the given image / depth latent [1 or B, C, h, w]
     companion: object = None
 
 
@@ -94,4 +96,11 @@ def given_rgb(plan, x):
     given = plan.companion
     if given is None or tuple(given.shape[1:]) != tuple(x.shape[1:]):
         raise IrisZError("[Iris-Z] Image to Depth lost its input image: run it from the img2img tab with an image.")
+    return rows(given, x)
+
+
+def given_depth(plan, x):
+    given = plan.companion
+    if given is None or tuple(given.shape[1:]) != tuple(x.shape[1:]):
+        raise IrisZError("[Iris-Z] Depth to Image lost its depth map: run it from the img2img tab with a depth map.")
     return rows(given, x)

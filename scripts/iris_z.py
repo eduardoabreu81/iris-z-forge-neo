@@ -51,7 +51,10 @@ if ENABLED:
                 mode = gr.Radio(list(irisz_script.MODES), value=irisz_script.MODE_IMAGE, label="Task",
                                 elem_id="iris_z_task_mode")
                 gr.Markdown("**Image to Depth**: the depth map of the input image, near = bright, at the input's "
-                            "size. It ignores the prompt text, steps, CFG and denoising.")
+                            "size. It ignores the prompt text, steps, CFG and denoising.\n\n"
+                            "**Depth to Image**: put a depth map (near = bright) as the input image and describe the "
+                            "new look in the prompt: the picture keeps the map's shapes and layout. It ignores "
+                            "denoising.")
             return [mode]
 
         def before_process(self, p, *args):

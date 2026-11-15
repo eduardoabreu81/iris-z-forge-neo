@@ -8,6 +8,10 @@
 # infotext work as usual. As the SDK's image_to_depth: the image at its working size (512 or 1024), the empty
 # prompt, no guidance, 4 Euler steps on the FLUX.2 schedule from pure noise (denoising 1), the image latent given
 # next to the depth grid being sampled.
+#
+# Depth to Image runs through img2img too, as the SDK's depth_to_image: the depth map becomes the clean depth grid
+# (the VAE encodes it, depth.paint_input), and the image is sampled from pure noise next to it with the user's
+# prompt, steps and guidance, at about one megapixel.
 
 import re
 
@@ -15,6 +19,7 @@ from . import checkpoints, depth
 from .contracts import (
     DEPTH,
     IMAGE,
+    PAINT,
     IrisZError,
     Plan,
     current_plan,
@@ -25,11 +30,12 @@ from .contracts import (
 
 MODE_IMAGE = "Image"
 MODE_DEPTH = "Image to Depth"
-MODES = (MODE_IMAGE, MODE_DEPTH)
+MODE_PAINT = "Depth to Image"
+MODES = (MODE_IMAGE, MODE_DEPTH, MODE_PAINT)
 DEPTH_STEPS = 4
 _EXTRA_NETWORK = re.compile(r"<[^<>]+>")
 
-DEPTH_CHECKPOINT = "[Iris-Z] Image to Depth needs the Iris-Z checkpoint (iris-z-small) selected."
+DEPTH_CHECKPOINT = "[Iris-Z] {mode} needs the Iris-Z checkpoint (iris-z-small) selected."
 
 
 def selected_is_iris_z(p) -> bool:
@@ -60,28 +66,58 @@ def before_process(p, mode: str = MODE_IMAGE) -> None:
     set_pending_error(None)
     set_plan(None)
     p.iris_z_task = None
-    wants_depth = is_img2img(p) and mode == MODE_DEPTH
+    task = mode if is_img2img(p) and mode in (MODE_DEPTH, MODE_PAINT) else None
     if not selected_is_iris_z(p):
-        if wants_depth:
-            _refuse(DEPTH_CHECKPOINT)
+        if task:
+            _refuse(DEPTH_CHECKPOINT.format(mode=task))
         return
-    if wants_depth:
+    if task == MODE_DEPTH:
         return _prepare_depth(p)
+    if task == MODE_PAINT:
+        return _prepare_paint(p)
     set_plan(Plan(IMAGE))
+
+
+def _usable_input(p, mode) -> bool:
+    if getattr(p, "image_mask", None) is not None:
+        _refuse(f"[Iris-Z] {mode} works on the whole image: clear the inpaint mask.")
+        return False
+    if not getattr(p, "init_images", None):
+        _refuse(f"[Iris-Z] {mode} needs an input image.")
+        return False
+    return True
+
+
+def _from_pure_noise(p) -> None:
+    """img2img sampling from pure noise: the input only conditions, through the plan."""
+    p.resize_mode = 0
+    p.denoising_strength = 1.0
+    p.initial_noise_multiplier = 1.0
+    # Forge's extra img2img noise would add to the noise sampling starts from; overrides apply after before_process
+    p.override_settings = {**(getattr(p, "override_settings", None) or {}), "img2img_extra_noise": 0}
+
+
+def _prepare_paint(p) -> None:
+    if not _usable_input(p, MODE_PAINT):
+        return
+    given = depth.paint_input(p.init_images[0])
+    p.init_images = [given]
+    p.width, p.height = given.size
+    _from_pure_noise(p)
+    p.extra_generation_params["Iris-Z task"] = MODE_PAINT
+    set_plan(Plan(PAINT))
 
 
 def _prepare_depth(p) -> None:
     from PIL import Image
 
-    if getattr(p, "image_mask", None) is not None:
-        return _refuse(f"[Iris-Z] {MODE_DEPTH} works on the whole image: clear the inpaint mask.")
-    if not getattr(p, "init_images", None):
-        return _refuse(f"[Iris-Z] {MODE_DEPTH} needs an input image.")
+    if not _usable_input(p, MODE_DEPTH):
+        return
     image = p.init_images[0].convert("RGB")
     size = depth.work_size(*image.size)
     p.init_images = [image.resize(size, Image.Resampling.LANCZOS)]
     p.width, p.height = size
-    p.resize_mode = 0
+    _from_pure_noise(p)
     # the depth is read with the empty prompt; LoRA tags stay for Forge to apply. Without tags the prompt is a space,
     # not "": the engine encodes both as the empty prompt, and sd-dynamic-prompts raises on an empty template
     p.prompt = " ".join(_EXTRA_NETWORK.findall(p.prompt or "")) or " "
@@ -89,11 +125,7 @@ def _prepare_depth(p) -> None:
     p.cfg_scale = 1.0
     p.batch_size = 1
     p.steps = DEPTH_STEPS
-    p.denoising_strength = 1.0
-    p.initial_noise_multiplier = 1.0
     p.sampler_name, p.scheduler = "Euler", "Flux2"
-    # Forge's extra img2img noise would add to the noise the depth starts from; overrides apply after before_process
-    p.override_settings = {**(getattr(p, "override_settings", None) or {}), "img2img_extra_noise": 0}
     p.extra_generation_params["Iris-Z task"] = MODE_DEPTH
     p.iris_z_task = {"size": image.size}
     set_plan(Plan(DEPTH))
@@ -108,8 +140,8 @@ def before_sampling(p, noise, x=None) -> None:
     if plan is None:
         plan = Plan(IMAGE)
         set_plan(plan)
-    if plan.mode == DEPTH:
-        # img2img hands the clean image latent as x
+    if plan.mode in (DEPTH, PAINT):
+        # img2img hands the clean input latent as x: the image for Image to Depth, the depth map for Depth to Image
         plan.companion = None if x is None else x.detach().clone()
         return
     plan.companion = seeded_noise(p.seeds, tuple(noise.shape[1:]))
