@@ -95,6 +95,7 @@ Generate with **[Iris-Z](https://huggingface.co/speridlabs/iris-z)** inside Forg
 | Part | File | Folder |
 | :--- | :--- | :--- |
 | Iris-Z checkpoint | [`iris-z-small_int8_convrot`](https://huggingface.co/eduardoabreu81/iris-z-small-quantized) (9.4 GB), [`iris-z-small_w4a8`](https://huggingface.co/eduardoabreu81/iris-z-small-quantized) (5.6 GB) or `iris-z-small_bf16` (18.2 GB, see below) | `models/Stable-diffusion` |
+| Turbo checkpoint (optional) | [`iris-z-small_turbo_int8_convrot`](https://huggingface.co/eduardoabreu81/iris-z-small-turbo) (9.4 GB), `iris-z-small_turbo_w4a8` (5.6 GB), `iris-z-small_turbo_nvfp4` (5.6 GB) or `iris-z-small_turbo_bf16` (18.2 GB): 8 steps, CFG 1 | `models/Stable-diffusion` |
 | Qwen3 8B text encoder | [`qwen_3_8b`](https://huggingface.co/Comfy-Org/Flux-2-Klein-9B/tree/main/split_files/text_encoders) or the lighter `qwen_3_8b_fp8mixed` | `models/text_encoder` |
 | FLUX.2 VAE | [`flux2-vae`](https://huggingface.co/Comfy-Org/Flux-2-Klein-9B/tree/main/split_files/vae) | `models/VAE` |
 
