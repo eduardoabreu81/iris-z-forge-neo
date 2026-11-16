@@ -1,3 +1,7 @@
+<p align="center">
+  <img src=".github/banner.jpg" alt="Iris-Z for Forge Neo banner"/>
+</p>
+
 # 🌊 Iris-Z for Forge Neo
 
 <div align="center">
